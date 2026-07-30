@@ -41,10 +41,11 @@ void transform_and_project(
             out[i].color = verts[i].color;
         }
 
-        // Only cull vertices outside the near plane (behind camera or
-        // between camera and near plane). X/Y/far-plane off-screen vertices
-        // are projected normally; the rasterizer and Z-buffer handle them.
-        if (clip.w <= 0 || clip.z < -clip.w) {
+        // Cull vertices outside any frustum plane.
+        if (clip.w <= 0 ||
+            clip.z <= -clip.w || clip.z >= clip.w ||
+            clip.x <= -clip.w || clip.x >= clip.w ||
+            clip.y <= -clip.w || clip.y >= clip.w) {
             out[i].sx = -9999;
             out[i].sz = 0;
             continue;
