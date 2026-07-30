@@ -182,6 +182,16 @@ void draw_mesh(
         const auto& v1 = verts[t[1]];
         const auto& v2 = verts[t[2]];
 
+        // Guard band: skip triangles with vertices far outside the
+        // viewport.  These are frustum-side-plane straddlers that pass
+        // the near-plane check but project to extreme coordinates (e.g.
+        // sx=5000 on an 800-wide viewport).
+        auto guard = [vp_w, vp_h](const ScreenVertex& v) {
+            return v.sx != -9999 && (v.sx < -vp_w || v.sx >= vp_w * 2 ||
+                                     v.sy < -vp_h || v.sy >= vp_h * 2);
+        };
+        if (guard(v0) || guard(v1) || guard(v2)) continue;
+
         // Check if any vertices are outside the near plane
         auto outside = [](const ScreenVertex& v) { return v.sx == -9999; };
         if (!outside(v0) && !outside(v1) && !outside(v2)) {
@@ -198,17 +208,15 @@ void draw_mesh(
         auto r = clip_triangle_near(v0, v1, v2, buf, 0, vp_x, vp_y, vp_w, vp_h);
         if (r.ntris == 0) continue;
 
-        // Guard band: discard if any clipped vertex has extreme screen
-        // coordinates (outside the viewport by more than its size).
-        // This prevents near-plane intersections outside the frustum's
-        // side planes from creating triangles that span the entire screen.
-        bool guard = false;
-        for (int i = 0; i < r.nverts; i++) {
-            if (buf[i].sx < -vp_w || buf[i].sx >= vp_w * 2 ||
-                buf[i].sy < -vp_h || buf[i].sy >= vp_h * 2)
-                { guard = true; break; }
+        // Guard band check for clipped vertices too
+        {
+            bool g = false;
+            for (int j = 0; j < r.nverts; j++)
+                if (buf[j].sx < -vp_w || buf[j].sx >= vp_w * 2 ||
+                    buf[j].sy < -vp_h || buf[j].sy >= vp_h * 2)
+                    { g = true; break; }
+            if (g) continue;
         }
-        if (guard) continue;
 
         // Draw first clipped triangle
         fill_triangle_gouraud(surf,
