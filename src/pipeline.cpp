@@ -95,7 +95,7 @@ static ClipResult clip_triangle_near(
     ScreenVertex* out_verts, int out_idx,
     int vp_x, int vp_y, int vp_w, int vp_h)
 {
-    auto outside = [](const ScreenVertex& v) { return v.sx == -9999; };
+    auto outside = [](const ScreenVertex& v) { return v.sx == -9999 && v.clip_z + v.clip_w < 0; };
     bool o0 = outside(v0), o1 = outside(v1), o2 = outside(v2);
 
     // All inside: pass through
@@ -183,18 +183,23 @@ void draw_mesh(
         const auto& v1 = verts[t[1]];
         const auto& v2 = verts[t[2]];
 
-        // Guard band: skip triangles with vertices far outside the
-        // viewport.  These are frustum-side-plane straddlers that pass
-        // the near-plane check but project to extreme coordinates (e.g.
-        // sx=5000 on an 800-wide viewport).
-        auto guard = [vp_w, vp_h](const ScreenVertex& v) {
-            return v.sx != -9999 && (v.sx < -vp_w || v.sx >= vp_w * 2 ||
-                                     v.sy < -vp_h || v.sy >= vp_h * 2);
+        // Vertex is culled specifically because it's behind the near plane
+        auto near_culled = [](const ScreenVertex& v) {
+            return v.sx == -9999 && v.clip_z + v.clip_w < 0;
+        };
+
+        // Guard band: skip triangles with vertices outside the frustum
+        // that AREN'T near-plane straddlers (side/far-plane culled, or
+        // valid vertices projecting to extreme screen coordinates).
+        auto guard = [vp_w, vp_h, &near_culled](const ScreenVertex& v) {
+            if (v.sx == -9999) return !near_culled(v);
+            return v.sx < -vp_w || v.sx >= vp_w * 2 ||
+                   v.sy < -vp_h || v.sy >= vp_h * 2;
         };
         if (guard(v0) || guard(v1) || guard(v2)) continue;
 
-        // Check if any vertices are outside the near plane
-        auto outside = [](const ScreenVertex& v) { return v.sx == -9999; };
+        // Check if any vertices need near-plane clipping
+        auto outside = near_culled;
         if (!outside(v0) && !outside(v1) && !outside(v2)) {
             // All inside: draw directly
             fill_triangle_gouraud(surf,
