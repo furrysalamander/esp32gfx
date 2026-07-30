@@ -5,6 +5,79 @@
 
 using namespace esp32gfx;
 
+struct BlueNoise {
+    uint8_t v[64][64];
+};
+
+static void init_blue_noise(BlueNoise& bn) {
+    float n[64][64];
+    srand(42);
+    for (int y = 0; y < 64; y++)
+        for (int x = 0; x < 64; x++)
+            n[y][x] = float(rand()) / RAND_MAX;
+
+    for (int iter = 0; iter < 30; iter++) {
+        float blur[64][64] = {};
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                float sum = 0;
+                for (int dy = -2; dy <= 2; dy++) {
+                    for (int dx = -2; dx <= 2; dx++) {
+                        sum += n[(y + dy + 64) % 64][(x + dx + 64) % 64];
+                    }
+                }
+                blur[y][x] = sum / 25.0f;
+            }
+        }
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                n[y][x] += (n[y][x] - blur[y][x]) * 1.5f;
+                if (n[y][x] < 0) n[y][x] = 0;
+                if (n[y][x] > 1) n[y][x] = 1;
+            }
+        }
+    }
+    for (int y = 0; y < 64; y++)
+        for (int x = 0; x < 64; x++)
+            bn.v[y][x] = uint8_t(n[y][x] * 255.0f);
+}
+
+// Obra Dinn-style sphere-mapped dither on a grayscale surface.
+// For each pixel, computes a world-space ray direction, sphere-maps it
+// to a blue noise threshold, then writes 0 or 255.
+static void apply_obra_dither(SurfaceGray8& surf, const BlueNoise& bn,
+                              const vec3f& cam_fwd, const vec3f& cam_right,
+                              float fov_y) {
+    int w = surf.width(), h = surf.height();
+    float aspect = float(w) / float(h);
+    float tan_hfov = std::tan(fov_y * 0.5f);
+    vec3f up = cam_right.cross(cam_fwd);
+    uint8_t* data = surf.data();
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float ndc_x = (float(x) + 0.5f) / float(w) * 2.0f - 1.0f;
+            float ndc_y = -((float(y) + 0.5f) / float(h) * 2.0f - 1.0f);
+
+            vec3f dir_vs(ndc_x * aspect * tan_hfov, ndc_y * tan_hfov, -1.0f);
+            dir_vs = dir_vs.normalized();
+
+            vec3f dir_ws(
+                cam_right.x * dir_vs.x + up.x * dir_vs.y - cam_fwd.x * dir_vs.z,
+                cam_right.y * dir_vs.x + up.y * dir_vs.y - cam_fwd.y * dir_vs.z,
+                cam_right.z * dir_vs.x + up.z * dir_vs.y - cam_fwd.z * dir_vs.z
+            );
+            dir_ws = dir_ws.normalized();
+
+            float u = std::atan2(dir_ws.z, dir_ws.x) / (2.0f * 3.14159265f) + 0.5f;
+            float v = std::acos(std::clamp(dir_ws.y, -1.0f, 1.0f)) / 3.14159265f;
+
+            uint8_t threshold = bn.v[int(v * 64) % 64][int(u * 64) % 64];
+            data[y * w + x] = data[y * w + x] > threshold ? 255 : 0;
+        }
+    }
+}
+
 static float terrain_height(float wx, float wz) {
     float h = 0;
     h += std::sin(wx * 0.125f) * std::cos(wz * 0.125f + 0.83f) * 15.0f;
@@ -84,9 +157,13 @@ int main(int argc, char** argv) {
 
     mat4f proj = mat4f::perspective(1.0f, float(surf_w) / float(surf_h), 5, 800);
 
+    BlueNoise blue_noise;
+    init_blue_noise(blue_noise);
+
     bool running = true;
     bool wireframe = false;
     bool gray_mode = false;
+    bool dither_mode = false;
     bool show_torus = false;
     float torus_angle = 0;
     uint32_t last_time = SDL_GetTicks();
@@ -123,6 +200,15 @@ int main(int argc, char** argv) {
                 if (e.key.keysym.sym == SDLK_g) {
                     gray_mode = !gray_mode;
                     if (gray_mode) {
+                        SDL_DestroyTexture(texture);
+                        texture = SDL_CreateTexture(
+                            renderer, SDL_PIXELFORMAT_RGBA32,
+                            SDL_TEXTUREACCESS_STREAMING, surf_w, surf_h);
+                    }
+                }
+                if (e.key.keysym.sym == SDLK_b) {
+                    dither_mode = !dither_mode;
+                    if (dither_mode) {
                         SDL_DestroyTexture(texture);
                         texture = SDL_CreateTexture(
                             renderer, SDL_PIXELFORMAT_RGBA32,
@@ -174,7 +260,48 @@ int main(int argc, char** argv) {
         auto& cur_mesh = show_torus ? torus : mesh;
         mat4f model = show_torus ? mat4f::rotate(torus_angle, 0.0f, 1.0f, 0.0f) * mat4f::rotate(1.570796f, 1.0f, 0.0f, 0.0f) : mat4f::identity();
 
-        if (gray_mode) {
+        if (dither_mode) {
+            int dith_w = surf_w * 2;
+            int dith_h = surf_h * 2;
+            SurfaceGray8 dither_surf(dith_w, dith_h);
+            dither_surf.clear(Color::sky());
+
+            transform_and_project(cur_mesh.vertices.data(), (int)cur_mesh.vertices.size(),
+                                  screen.data(), model, cam.view(), proj,
+                                  0, 0, dith_w, dith_h, light_dir);
+
+            if (wireframe) {
+                for (const auto& t : cur_mesh.triangles) {
+                    const auto& v0 = screen[t[0]];
+                    const auto& v1 = screen[t[1]];
+                    const auto& v2 = screen[t[2]];
+                    draw_line(dither_surf, v0.sx, v0.sy, v1.sx, v1.sy, Color::white());
+                    draw_line(dither_surf, v1.sx, v1.sy, v2.sx, v2.sy, Color::white());
+                    draw_line(dither_surf, v2.sx, v2.sy, v0.sx, v0.sy, Color::white());
+                }
+            } else {
+                draw_mesh(dither_surf, screen.data(), cur_mesh.triangles.data(),
+                          (int)cur_mesh.triangles.size(), 0, 0, dith_w, dith_h);
+            }
+
+            apply_obra_dither(dither_surf, blue_noise, cam.forward(), cam.right(), 1.0f);
+
+            surface.clear(Color::black());
+            for (int y = 0; y < surf_h; y++) {
+                for (int x = 0; x < surf_w; x++) {
+                    int sum = 0;
+                    for (int dy = 0; dy < 2; dy++) {
+                        for (int dx = 0; dx < 2; dx++) {
+                            sum += dither_surf.data()[(y * 2 + dy) * dith_w + (x * 2 + dx)];
+                        }
+                    }
+                    uint8_t v = uint8_t(sum / 4);
+                    surface.pixel(x, y, Color(v / 255.0f, v / 255.0f, v / 255.0f));
+                }
+            }
+
+            SDL_UpdateTexture(texture, nullptr, surface.data(), surf_w * 4);
+        } else if (gray_mode) {
             SurfaceGray8 gray_surf(surf_w, surf_h);
             gray_surf.clear(Color::sky());
 
