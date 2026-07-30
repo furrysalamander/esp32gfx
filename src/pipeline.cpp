@@ -187,9 +187,9 @@ void draw_mesh(
         if (!outside(v0) && !outside(v1) && !outside(v2)) {
             // All inside: draw directly
             fill_triangle_gouraud(surf,
-                v0.sx, v0.sy, v0.color, v0.sz,
-                v1.sx, v1.sy, v1.color, v1.sz,
-                v2.sx, v2.sy, v2.color, v2.sz);
+                v0.sx, v0.sy, v0.color, v0.sz, 1.0f / v0.clip_w,
+                v1.sx, v1.sy, v1.color, v1.sz, 1.0f / v1.clip_w,
+                v2.sx, v2.sy, v2.color, v2.sz, 1.0f / v2.clip_w);
             continue;
         }
 
@@ -200,16 +200,16 @@ void draw_mesh(
 
         // Draw first clipped triangle
         fill_triangle_gouraud(surf,
-            buf[0].sx, buf[0].sy, buf[0].color, buf[0].sz,
-            buf[1].sx, buf[1].sy, buf[1].color, buf[1].sz,
-            buf[2].sx, buf[2].sy, buf[2].color, buf[2].sz);
+            buf[0].sx, buf[0].sy, buf[0].color, buf[0].sz, 1.0f / buf[0].clip_w,
+            buf[1].sx, buf[1].sy, buf[1].color, buf[1].sz, 1.0f / buf[1].clip_w,
+            buf[2].sx, buf[2].sy, buf[2].color, buf[2].sz, 1.0f / buf[2].clip_w);
 
         // Draw second clipped triangle if quad was split
         if (r.ntris == 2) {
             fill_triangle_gouraud(surf,
-                buf[0].sx, buf[0].sy, buf[0].color, buf[0].sz,
-                buf[2].sx, buf[2].sy, buf[2].color, buf[2].sz,
-                buf[3].sx, buf[3].sy, buf[3].color, buf[3].sz);
+                buf[0].sx, buf[0].sy, buf[0].color, buf[0].sz, 1.0f / buf[0].clip_w,
+                buf[2].sx, buf[2].sy, buf[2].color, buf[2].sz, 1.0f / buf[2].clip_w,
+                buf[3].sx, buf[3].sy, buf[3].color, buf[3].sz, 1.0f / buf[3].clip_w);
         }
     }
 }
