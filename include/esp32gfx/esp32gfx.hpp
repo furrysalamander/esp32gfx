@@ -7,3 +7,4 @@
 #include "raster.hpp"
 #include "pipeline.hpp"
 #include "terrain.hpp"
+#include "bluenoise.hpp"
