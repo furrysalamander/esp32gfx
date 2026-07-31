@@ -5,25 +5,65 @@
 
 using namespace esp32gfx;
 
-// Screen-space tiled blue noise with camera-rotation offset.
-// Each screen pixel maps 1:1 to a noise texel (crisp dots).
-// The tile origin shifts as the camera rotates so the repeating
-// 64×64 pattern doesn't stay visibly locked to the screen.
 static constexpr uint8_t NOISE_TILE = 64;
 static constexpr BlueNoise64 blue_noise;
 
+// Screen-space tiled blue noise offset by camera rotation.
+// DitherOffset = ScreenSize * CameraRotation / CameraFov
 static void apply_obra_dither(SurfaceGray8& surf, float fov_y,
                               float yaw_offset, float pitch_offset) {
     int w = surf.width(), h = surf.height();
     uint8_t* data = surf.data();
 
-    int ox = int(w * yaw_offset / fov_y);
-    int oy = int(h * pitch_offset * float(w) / float(h) / fov_y);
+    float aspect = float(w) / float(h);
+    float fov_x = 2.0f * std::atan(std::tan(fov_y * 0.5f) * aspect);
+
+    int ox = int(w * yaw_offset / fov_x);
+    int oy = int(h * pitch_offset / fov_y);
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             int tx = (x - ox) & (NOISE_TILE - 1);
             int ty = (y - oy) & (NOISE_TILE - 1);
+            data[y * w + x] = data[y * w + x] > blue_noise.data[ty][tx] ? 255 : 0;
+        }
+    }
+}
+
+// World-space sphere-mapped dither: the noise texture is looked up from a
+// sphere centered at the camera, oriented to world space.  During camera
+// rotation the pattern stays pinned to scene geometry.  The 64x64 noise
+// tiles at ~screen pixel resolution: each radian of horizontal angle maps
+// to w/fov_x texels, so the pattern wraps every fov_x*w/(fov_x*64)=64px
+// at screen center, but the tile origin is pinned to world directions.
+static void apply_obra_dither_sphere(SurfaceGray8& surf, float fov_y,
+                                     const vec3f& forward, const vec3f& right,
+                                     const vec3f& up) {
+    int w = surf.width(), h = surf.height();
+    uint8_t* data = surf.data();
+    float tan_half_fov = std::tan(fov_y * 0.5f);
+    float aspect = float(w) / float(h);
+    float fov_x = 2.0f * std::atan(std::tan(fov_y * 0.5f) * aspect);
+
+    for (int y = 0; y < h; y++) {
+        float ndc_y = 1.0f - 2.0f * (float(y) + 0.5f) / float(h);
+        float view_y = ndc_y * tan_half_fov;
+
+        for (int x = 0; x < w; x++) {
+            float ndc_x = 2.0f * (float(x) + 0.5f) / float(w) - 1.0f;
+            float view_x = ndc_x * tan_half_fov * aspect;
+
+            // world-space direction (inverse of view rotation 3x3)
+            float dx = right.x * view_x + up.x * view_y + forward.x;
+            float dy = right.y * view_x + up.y * view_y + forward.y;
+            float dz = right.z * view_x + up.z * view_y + forward.z;
+
+            float theta = std::atan2(dz, dx);
+            float phi = std::asin(dy / std::sqrt(dx * dx + dy * dy + dz * dz));
+
+            int tx = int(theta * float(w) / fov_x) & (NOISE_TILE - 1);
+            int ty = int(phi * float(h) / fov_y) & (NOISE_TILE - 1);
+
             data[y * w + x] = data[y * w + x] > blue_noise.data[ty][tx] ? 255 : 0;
         }
     }
@@ -54,6 +94,12 @@ struct Camera {
 
     vec3f right() const {
         return {std::cos(yaw), 0, -std::sin(yaw)};
+    }
+
+    vec3f up() const {
+        return {std::sin(yaw) * std::sin(pitch),
+                -std::cos(pitch),
+                std::cos(yaw) * std::sin(pitch)};
     }
 
     mat4f view() const {
@@ -111,7 +157,8 @@ int main(int argc, char** argv) {
     bool running = true;
     bool wireframe = false;
     bool gray_mode = false;
-    bool dither_mode = false;
+    enum DitherMode { DITHER_OFF, DITHER_SCREEN, DITHER_SPHERE };
+    int dither_mode = DITHER_OFF;
     bool show_torus = false;
     float torus_angle = 0;
     float yaw_base = cam.yaw, pitch_base = cam.pitch;
@@ -156,8 +203,8 @@ int main(int argc, char** argv) {
                     }
                 }
                 if (e.key.keysym.sym == SDLK_b) {
-                    dither_mode = !dither_mode;
-                    if (dither_mode) {
+                    dither_mode = (dither_mode + 1) % 3;
+                    if (dither_mode == DITHER_SCREEN || dither_mode == DITHER_SPHERE) {
                         SDL_DestroyTexture(texture);
                         texture = SDL_CreateTexture(
                             renderer, SDL_PIXELFORMAT_RGBA32,
@@ -354,7 +401,7 @@ int main(int argc, char** argv) {
         auto& cur_mesh = show_torus ? torus : mesh;
         mat4f model = show_torus ? mat4f::rotate(torus_angle, 0.0f, 1.0f, 0.0f) * mat4f::rotate(1.570796f, 1.0f, 0.0f, 0.0f) : mat4f::identity();
 
-        if (dither_mode) {
+        if (dither_mode != DITHER_OFF) {
             SurfaceGray8 gray_surf(surf_w, surf_h);
             gray_surf.clear(Color::black());
 
@@ -376,9 +423,16 @@ int main(int argc, char** argv) {
                           (int)cur_mesh.triangles.size(), 0, 0, surf_w, surf_h);
             }
 
-            float dyaw = cam.yaw - yaw_base;
-            float dpitch = cam.pitch - pitch_base;
-            apply_obra_dither(gray_surf, 1.0f, dyaw, dpitch);
+            if (dither_mode == DITHER_SCREEN) {
+                float dyaw = cam.yaw - yaw_base;
+                float dpitch = cam.pitch - pitch_base;
+                apply_obra_dither(gray_surf, 1.0f, dyaw, dpitch);
+            } else {
+                auto fwd = cam.forward();
+                auto rt = cam.right();
+                auto u = cam.up();
+                apply_obra_dither_sphere(gray_surf, 1.0f, fwd, rt, u);
+            }
 
             uint8_t* src = gray_surf.data();
             for (int i = 0; i < surf_w * surf_h; i++)
