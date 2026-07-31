@@ -49,6 +49,11 @@ public:
         return PixelTraits<P>::unpack(buf_[y * w_ + x]);
     }
 
+    int16_t depth_at(int x, int y) const {
+        if (x < 0 || x >= w_ || y < 0 || y >= h_ || depth_.empty()) return 32767;
+        return depth_[y * w_ + x];
+    }
+
 private:
     int w_ = 0, h_ = 0;
     std::vector<P> buf_;
