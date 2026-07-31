@@ -5,13 +5,15 @@
 
 using namespace esp32gfx;
 
-static constexpr uint8_t NOISE_TILE = 64;
 static constexpr BlueNoise64 blue_noise;
 
 // Screen-space tiled blue noise offset by camera rotation.
 // DitherOffset = ScreenSize * CameraRotation / CameraFov
+template <typename Noise>
 static void apply_obra_dither(SurfaceGray8& surf, float fov_y,
-                              float yaw_offset, float pitch_offset) {
+                              float yaw_offset, float pitch_offset,
+                              const Noise& noise) {
+    constexpr uint8_t TILE = Noise::N;
     int w = surf.width(), h = surf.height();
     uint8_t* data = surf.data();
 
@@ -23,21 +25,23 @@ static void apply_obra_dither(SurfaceGray8& surf, float fov_y,
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            int tx = (x - ox) & (NOISE_TILE - 1);
-            int ty = (y - oy) & (NOISE_TILE - 1);
-            data[y * w + x] = data[y * w + x] > blue_noise.data[ty][tx] ? 255 : 0;
+            int tx = (x - ox) & (TILE - 1);
+            int ty = (y - oy) & (TILE - 1);
+            data[y * w + x] = data[y * w + x] > noise.data[ty * TILE + tx] ? 255 : 0;
         }
     }
 }
 
 // World-space sphere-mapped dither: the noise texture is looked up from a
 // sphere centered at the camera, oriented to world space.  During camera
-// rotation the pattern stays pinned to scene geometry.  The 64x64 noise
-// tiles at ~screen pixel resolution: each radian of horizontal angle maps
-// to w/fov_x texels, so the pattern wraps every 64px at screen center, but
-// the tile origin is pinned to world directions.
+// rotation the pattern stays pinned to scene geometry.  The noise tiles at
+// ~screen pixel resolution: each radian of horizontal angle maps to w/fov_x
+// texels, so the pattern wraps every TILE px at screen center, but the tile
+// origin is pinned to world directions.
+template <typename Noise>
 static void apply_obra_dither_sphere(SurfaceGray8& surf, float fov_y,
-                                     const mat4f& view) {
+                                     const mat4f& view, const Noise& noise) {
+    constexpr uint8_t TILE = Noise::N;
     int w = surf.width(), h = surf.height();
     uint8_t* data = surf.data();
     float tan_half_fov = std::tan(fov_y * 0.5f);
@@ -62,10 +66,10 @@ static void apply_obra_dither_sphere(SurfaceGray8& surf, float fov_y,
             float theta = std::atan2(dz, dx);
             float phi = std::asin(dy / std::sqrt(dx * dx + dy * dy + dz * dz));
 
-            int tx = int(theta * float(w) / fov_x) & (NOISE_TILE - 1);
-            int ty = int(phi * float(h) / fov_y) & (NOISE_TILE - 1);
+            int tx = int(theta * float(w) / fov_x) & (TILE - 1);
+            int ty = int(phi * float(h) / fov_y) & (TILE - 1);
 
-            data[y * w + x] = data[y * w + x] > blue_noise.data[ty][tx] ? 255 : 0;
+            data[y * w + x] = data[y * w + x] > noise.data[ty * TILE + tx] ? 255 : 0;
         }
     }
 }
@@ -421,9 +425,9 @@ int main(int argc, char** argv) {
             if (dither_mode == DITHER_SCREEN) {
                 float dyaw = cam.yaw - yaw_base;
                 float dpitch = cam.pitch - pitch_base;
-                apply_obra_dither(gray_surf, 1.0f, dyaw, dpitch);
+                apply_obra_dither(gray_surf, 1.0f, dyaw, dpitch, blue_noise);
             } else {
-                apply_obra_dither_sphere(gray_surf, 1.0f, cam.view());
+                apply_obra_dither_sphere(gray_surf, 1.0f, cam.view(), blue_noise);
             }
 
             uint8_t* src = gray_surf.data();

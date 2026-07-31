@@ -18,5 +18,5 @@ target_include_directories(esp32gfx_viewer PRIVATE
 
 target_compile_options(esp32gfx_viewer PRIVATE
     ${SDL2_CFLAGS_OTHER}
-    -fconstexpr-ops-limit=500000000
+    -fconstexpr-ops-limit=4000000000
 )
