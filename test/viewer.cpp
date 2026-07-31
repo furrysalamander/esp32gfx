@@ -34,11 +34,10 @@ static void apply_obra_dither(SurfaceGray8& surf, float fov_y,
 // sphere centered at the camera, oriented to world space.  During camera
 // rotation the pattern stays pinned to scene geometry.  The 64x64 noise
 // tiles at ~screen pixel resolution: each radian of horizontal angle maps
-// to w/fov_x texels, so the pattern wraps every fov_x*w/(fov_x*64)=64px
-// at screen center, but the tile origin is pinned to world directions.
+// to w/fov_x texels, so the pattern wraps every 64px at screen center, but
+// the tile origin is pinned to world directions.
 static void apply_obra_dither_sphere(SurfaceGray8& surf, float fov_y,
-                                     const vec3f& forward, const vec3f& right,
-                                     const vec3f& up) {
+                                     const mat4f& view) {
     int w = surf.width(), h = surf.height();
     uint8_t* data = surf.data();
     float tan_half_fov = std::tan(fov_y * 0.5f);
@@ -53,10 +52,12 @@ static void apply_obra_dither_sphere(SurfaceGray8& surf, float fov_y,
             float ndc_x = 2.0f * (float(x) + 0.5f) / float(w) - 1.0f;
             float view_x = ndc_x * tan_half_fov * aspect;
 
-            // world-space direction (inverse of view rotation 3x3)
-            float dx = right.x * view_x + up.x * view_y + forward.x;
-            float dy = right.y * view_x + up.y * view_y + forward.y;
-            float dz = right.z * view_x + up.z * view_y + forward.z;
+            // view->world direction = transpose of the view rotation.
+            // The view matrix is column-major: column 0 = right, column 1 = up,
+            // column 2 = -forward, so (M^T * v) gives s.x*vx+u.x*vy+f.x, etc.
+            float dx = view.m[0] * view_x + view.m[1] * view_y - view.m[2];
+            float dy = view.m[4] * view_x + view.m[5] * view_y - view.m[6];
+            float dz = view.m[8] * view_x + view.m[9] * view_y - view.m[10];
 
             float theta = std::atan2(dz, dx);
             float phi = std::asin(dy / std::sqrt(dx * dx + dy * dy + dz * dz));
@@ -94,12 +95,6 @@ struct Camera {
 
     vec3f right() const {
         return {std::cos(yaw), 0, -std::sin(yaw)};
-    }
-
-    vec3f up() const {
-        return {std::sin(yaw) * std::sin(pitch),
-                -std::cos(pitch),
-                std::cos(yaw) * std::sin(pitch)};
     }
 
     mat4f view() const {
@@ -428,10 +423,7 @@ int main(int argc, char** argv) {
                 float dpitch = cam.pitch - pitch_base;
                 apply_obra_dither(gray_surf, 1.0f, dyaw, dpitch);
             } else {
-                auto fwd = cam.forward();
-                auto rt = cam.right();
-                auto u = cam.up();
-                apply_obra_dither_sphere(gray_surf, 1.0f, fwd, rt, u);
+                apply_obra_dither_sphere(gray_surf, 1.0f, cam.view());
             }
 
             uint8_t* src = gray_surf.data();
