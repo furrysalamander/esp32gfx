@@ -14,7 +14,7 @@ struct Vertex {
 };
 
 struct ScreenVertex {
-    int16_t sx, sy;
+    int32_t sx, sy;
     int16_t sz;
     Color color;
     float clip_x, clip_y, clip_z, clip_w;

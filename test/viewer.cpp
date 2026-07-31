@@ -288,8 +288,8 @@ int main(int argc, char** argv) {
                                 out.clip_z = va.clip_z + t * (vb.clip_z - va.clip_z);
                                 out.clip_w = va.clip_w + t * (vb.clip_w - va.clip_w);
                                 float inv_w = 1.0f / out.clip_w;
-                                out.sx = int16_t(out.clip_x * inv_w * 0.5f * surf_w + surf_w * 0.5f);
-                                out.sy = int16_t(-out.clip_y * inv_w * 0.5f * surf_h + surf_h * 0.5f);
+                                out.sx = int32_t(out.clip_x * inv_w * 0.5f * surf_w + surf_w * 0.5f);
+                                out.sy = int32_t(-out.clip_y * inv_w * 0.5f * surf_h + surf_h * 0.5f);
                                 out.sz = int16_t(std::clamp(out.clip_z * inv_w, -1.0f, 1.0f) * 32767.0f);
                                 return out;
                             };

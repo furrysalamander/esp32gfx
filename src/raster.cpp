@@ -5,17 +5,13 @@ namespace esp32gfx {
 template<Pixel P>
 void fill_triangle_gouraud(
     Surface<P>& surf,
-    int16_t x0, int16_t y0, Color c0, int16_t z0,
-    int16_t x1, int16_t y1, Color c1, int16_t z1,
-    int16_t x2, int16_t y2, Color c2, int16_t z2)
+    int32_t x0, int32_t y0, Color c0, int16_t z0,
+    int32_t x1, int32_t y1, Color c1, int16_t z1,
+    int32_t x2, int32_t y2, Color c2, int16_t z2)
 {
-    auto swp = [](int16_t& a, int16_t& b) { int16_t t = a; a = b; b = t; };
-    auto swc = [](Color& a, Color& b) { Color t = a; a = b; b = t; };
-    auto swz = [](int16_t& a, int16_t& b) { int16_t t = a; a = b; b = t; };
-
-    if (y0 > y1) { swp(x0, x1); swp(y0, y1); swc(c0, c1); swz(z0, z1); }
-    if (y0 > y2) { swp(x0, x2); swp(y0, y2); swc(c0, c2); swz(z0, z2); }
-    if (y1 > y2) { swp(x1, x2); swp(y1, y2); swc(c1, c2); swz(z1, z2); }
+    if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); std::swap(c0, c1); std::swap(z0, z1); }
+    if (y0 > y2) { std::swap(x0, x2); std::swap(y0, y2); std::swap(c0, c2); std::swap(z0, z2); }
+    if (y1 > y2) { std::swap(x1, x2); std::swap(y1, y2); std::swap(c1, c2); std::swap(z1, z2); }
 
     int h = surf.height();
     if (y2 < 0 || y0 >= h) return;
@@ -23,7 +19,7 @@ void fill_triangle_gouraud(
     int pre_step = y0 < 0 ? -y0 : 0;
     int ys = y0 + pre_step;
 
-    auto slope = [](int16_t xa, int16_t ya, int16_t xb, int16_t yb) {
+    auto slope = [](int32_t xa, int32_t ya, int32_t xb, int32_t yb) {
         int d = yb - ya;
         return d > 0 ? float(xb - xa) / float(d) : 0.0f;
     };
@@ -161,13 +157,13 @@ void fill_triangle_gouraud(
     }
 }
 
-template void fill_triangle_gouraud(SurfaceRGBA32&, int16_t, int16_t, Color, int16_t, int16_t, int16_t, Color, int16_t, int16_t, int16_t, Color, int16_t);
-template void fill_triangle_gouraud(SurfaceGray8&, int16_t, int16_t, Color, int16_t, int16_t, int16_t, Color, int16_t, int16_t, int16_t, Color, int16_t);
+template void fill_triangle_gouraud(SurfaceRGBA32&, int32_t, int32_t, Color, int16_t, int32_t, int32_t, Color, int16_t, int32_t, int32_t, Color, int16_t);
+template void fill_triangle_gouraud(SurfaceGray8&, int32_t, int32_t, Color, int16_t, int32_t, int32_t, Color, int16_t, int32_t, int32_t, Color, int16_t);
 
 template<Pixel P>
 void draw_line(Surface<P>& surf,
-               int16_t x0, int16_t y0,
-               int16_t x1, int16_t y1,
+               int32_t x0, int32_t y0,
+               int32_t x1, int32_t y1,
                Color color)
 {
     int dx = std::abs(x1 - x0);
@@ -185,7 +181,7 @@ void draw_line(Surface<P>& surf,
     }
 }
 
-template void draw_line(SurfaceRGBA32&, int16_t, int16_t, int16_t, int16_t, Color);
-template void draw_line(SurfaceGray8&, int16_t, int16_t, int16_t, int16_t, Color);
+template void draw_line(SurfaceRGBA32&, int32_t, int32_t, int32_t, int32_t, Color);
+template void draw_line(SurfaceGray8&, int32_t, int32_t, int32_t, int32_t, Color);
 
 } // namespace esp32gfx

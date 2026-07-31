@@ -53,8 +53,8 @@ void transform_and_project(
 
         float inv_w = 1.0f / clip.w;
 
-        out[i].sx = int16_t(vp_x + vp_w * (clip.x * inv_w * 0.5f + 0.5f));
-        out[i].sy = int16_t(vp_y + vp_h * (-clip.y * inv_w * 0.5f + 0.5f));
+        out[i].sx = int32_t(vp_x + vp_w * (clip.x * inv_w * 0.5f + 0.5f));
+        out[i].sy = int32_t(vp_y + vp_h * (-clip.y * inv_w * 0.5f + 0.5f));
         out[i].sz = int16_t(std::clamp(clip.z * inv_w, -1.0f, 1.0f) * 32767.0f);
     }
 }
@@ -80,8 +80,8 @@ static ScreenVertex clip_edge_near(
     v.color.b = va.color.b + t * (vb.color.b - va.color.b);
 
     float inv_w = 1.0f / v.clip_w;
-    v.sx = int16_t(vp_x + vp_w * (v.clip_x * inv_w * 0.5f + 0.5f));
-    v.sy = int16_t(vp_y + vp_h * (-v.clip_y * inv_w * 0.5f + 0.5f));
+    v.sx = int32_t(vp_x + vp_w * (v.clip_x * inv_w * 0.5f + 0.5f));
+    v.sy = int32_t(vp_y + vp_h * (-v.clip_y * inv_w * 0.5f + 0.5f));
     v.sz = int16_t(v.clip_z * inv_w * 32767.0f);
     return v;
 }
