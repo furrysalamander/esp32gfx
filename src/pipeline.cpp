@@ -41,11 +41,11 @@ void transform_and_project(
             out[i].color = verts[i].color;
         }
 
-        // Cull vertices outside any frustum plane.
-        if (clip.w <= 0 ||
-            clip.z <= -clip.w || clip.z >= clip.w ||
-            clip.x <= -clip.w || clip.x >= clip.w ||
-            clip.y <= -clip.w || clip.y >= clip.w) {
+        // Cull vertices behind the camera or beyond the near plane.
+        // Vertices outside the side/far planes are projected normally;
+        // they produce screen coordinates outside the viewport but the
+        // rasterizer handles triangles that extend off-screen.
+        if (clip.w <= 0.0f || clip.z + clip.w < 0.0f) {
             out[i].sx = -9999;
             out[i].sz = 0;
             continue;
@@ -95,7 +95,7 @@ static ClipResult clip_triangle_near(
     ScreenVertex* out_verts, int out_idx,
     int vp_x, int vp_y, int vp_w, int vp_h)
 {
-    auto outside = [](const ScreenVertex& v) { return v.sx == -9999 && v.clip_z + v.clip_w < 0; };
+    auto outside = [](const ScreenVertex& v) { return v.sx == -9999; };
     bool o0 = outside(v0), o1 = outside(v1), o2 = outside(v2);
 
     // All inside: pass through
@@ -183,23 +183,8 @@ void draw_mesh(
         const auto& v1 = verts[t[1]];
         const auto& v2 = verts[t[2]];
 
-        // Vertex is culled specifically because it's behind the near plane
-        auto near_culled = [](const ScreenVertex& v) {
-            return v.sx == -9999 && v.clip_z + v.clip_w < 0;
-        };
-
-        // Guard band: skip triangles with vertices outside the frustum
-        // that AREN'T near-plane straddlers (side/far-plane culled, or
-        // valid vertices projecting to extreme screen coordinates).
-        auto guard = [vp_w, vp_h, &near_culled](const ScreenVertex& v) {
-            if (v.sx == -9999) return !near_culled(v);
-            return v.sx < -vp_w || v.sx >= vp_w * 2 ||
-                   v.sy < -vp_h || v.sy >= vp_h * 2;
-        };
-        if (guard(v0) || guard(v1) || guard(v2)) continue;
-
-        // Check if any vertices need near-plane clipping
-        auto outside = near_culled;
+        // Check if any vertices are behind the near plane
+        auto outside = [](const ScreenVertex& v) { return v.sx == -9999; };
         if (!outside(v0) && !outside(v1) && !outside(v2)) {
             // All inside: draw directly
             fill_triangle_gouraud(surf,
@@ -213,16 +198,6 @@ void draw_mesh(
         ScreenVertex buf[4];
         auto r = clip_triangle_near(v0, v1, v2, buf, 0, vp_x, vp_y, vp_w, vp_h);
         if (r.ntris == 0) continue;
-
-        // Guard band check for clipped vertices too
-        {
-            bool g = false;
-            for (int j = 0; j < r.nverts; j++)
-                if (buf[j].sx < -vp_w || buf[j].sx >= vp_w * 2 ||
-                    buf[j].sy < -vp_h || buf[j].sy >= vp_h * 2)
-                    { g = true; break; }
-            if (g) continue;
-        }
 
         // Draw first clipped triangle
         fill_triangle_gouraud(surf,
